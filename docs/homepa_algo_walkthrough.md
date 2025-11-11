@@ -18,8 +18,8 @@ This note captures the refreshed logic used in `algo_1.3.ipynb`.  It is meant to
 4. **Travel-Aware Permutation Search**  
    Within each batch we enumerate every ordering (bounded by `permutation_limit`) and pick the sequence that minimises the travel cost from the current gap cursor to each suggestion and, finally, to the last gap’s closing location.
 
-5. **Gap Assignment with Stretching**  
-   The allocator places at least one block for every ordered suggestion.  If `splittable` is true, additional base-sized blocks are appended until the suggestion’s `total_duration` is satisfied (each block stays at or above the base size).  Travel time is subtracted as “slack” before and after each block so we never overrun a gap.
+5. **Gap Assignment (Single Blocks)**  
+   Each ordered suggestion is inserted as a single contiguous block.  Travel time into and out of the suggestion is subtracted as “slack”, ensuring we never overrun a gap boundary.
 
 6. **Iterate Until Gaps Are Full or Suggestions Exhausted**  
    Any leftover gap time triggers another selection round with the remaining suggestions.  We continue until capacity is consumed or no compatible suggestions remain.
@@ -31,7 +31,7 @@ This note captures the refreshed logic used in `algo_1.3.ipynb`.  It is meant to
 | Symbol | Description |
 | ------ | ----------- |
 | `Gap` | Holds the free window’s duration plus the start/end coordinates that determine travel buffers. |
-| `Suggestion` | Minimum block (`base_duration`), total demand (`total_duration`), location, and whether it can be split. |
+| `Suggestion` | Requested duration in minutes (`duration`) and its location on the grid. |
 | `ScheduledBlock` | One uninterrupted chunk of a suggestion placed in a gap. |
 | `MovementLogEntry` | Records every hop the allocator makes, including distance and minutes consumed. |
 | `AllocationState` | Carries persistent gap usage, cursor location, and labels so later passes continue seamlessly. |
@@ -44,15 +44,13 @@ This note captures the refreshed logic used in `algo_1.3.ipynb`.  It is meant to
 | Parameter | Where | Impact |
 | --------- | ----- | ------ |
 | `need`, `importance` | `Suggestion` | Combined score drives selection order.  A higher sum means the suggestion is considered earlier when capacity is scarce. |
-| `base_duration` | `Suggestion` | **Minimum commitment** that must fit before a suggestion can enter the schedule.  Also the size of each additional block for splittable suggestions. |
-| `total_duration` | `Suggestion` | Upper bound on the minutes the allocator tries to deliver for that suggestion.  When `splittable=True`, it must be an integer multiple of `base_duration` (with at least two blocks). |
-| `splittable` | `Suggestion` | When `False`, all blocks must fit contiguously in a single gap; when `True`, the allocator may spread blocks across gaps while respecting travel buffers. |
+| `duration` | `Suggestion` | Total minutes the allocator will try to place as a single contiguous block. |
 | `max_distance` | `schedule_suggestions` arg | Defines the spatial eligibility.  Larger values accept more suggestions but can increase travel cost. |
 | `permutation_limit` | `schedule_suggestions` arg | Bounds the factorial search.  Set it low (e.g., 6–8) to balance search quality against performance. |
 | `TRAVEL_MINUTES_PER_DISTANCE` | Module constant | Converts grid distance to minutes.  Increasing this constant creates wider travel buffers, which can squeeze out lower-priority suggestions but yields more realistic itineraries. |
 | `tolerance` | `schedule_suggestions` arg | Softens floating‑point comparisons.  Tighten it to prevent near-equal fits; relax it if you encounter “no room” errors due to rounding noise. |
 
-**Practical tip:** The interplay between `base_duration`, `total_duration`, and `TRAVEL_MINUTES_PER_DISTANCE` is critical.  Large base blocks or long travel buffers can quickly consume a gap, so revisit those numbers whenever you notice excessive unused minutes or aggressive stretching.
+**Practical tip:** Be mindful of the combination of `duration` and `TRAVEL_MINUTES_PER_DISTANCE`.  Large contiguous blocks or long travel buffers can quickly consume a gap, so revisit those numbers whenever you notice excessive unused minutes.
 
 ---
 
@@ -72,7 +70,7 @@ The notebook prints the log both in the formatted summary and in the demo cell s
 ### 5. Extending the Notebook
 
 1. **Adjust Parameters Quickly**  
-   Update the sample `Suggestion` definitions to try new scores, base durations, or total durations.  Tweak `max_distance`, `permutation_limit`, and `TRAVEL_MINUTES_PER_DISTANCE` at the top of the code cell to explore different spatial constraints.
+   Update the sample `Suggestion` definitions to try new scores or durations.  Tweak `max_distance`, `permutation_limit`, and `TRAVEL_MINUTES_PER_DISTANCE` at the top of the code cell to explore different spatial constraints.
 
 2. **Inject New Data**  
    Swap the sample lists for real inputs.  The only requirement is that every suggestion and gap carries coordinates on the shared (0–10) grid.
@@ -88,7 +86,7 @@ The notebook prints the log both in the formatted summary and in the demo cell s
 ### 6. Troubleshooting
 
 - **Many suggestions dropped early:** Verify their locations are within `max_distance` of a gap boundary and that their `base_duration` fits after accounting for travel buffers.
-- **Gaps left partially unused:** Review the movement log; travel time may be consuming most of the window.  Try lowering `total_duration` for long-distance suggestions or reducing `base_duration` where possible.
+- **Gaps left partially unused:** Review the movement log; travel time may be consuming most of the window.  Try lowering `duration` for long-distance suggestions where possible.
 - **Permutation search explodes:** Lower `permutation_limit` or pre-group suggestions (e.g., by region) so each batch fits within the limit.
 - **Unexpected travel spikes:** Ensure coordinates sit on the intended grid (0–10).  Outliers inflate travel conversions quickly.
 
